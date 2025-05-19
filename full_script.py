@@ -421,7 +421,7 @@ def map_machines(users, machine_list):
                     machine.add_users(user.get_name())
         if not machine.get_assignment():
             no_loc_m.append(machine)
-    users.append(Assignee(name="459 JRCB", cat="loc", machines=[mach for mach in no_loc_m], loc="459 JRCB", email="helpdesk@law.byu.edu"))
+    users.append(Assignee(name="459 JRCB", cat="loc", machines=[mach for mach in no_loc_m], loc="459 JRCB", email=""))
             
 def send_emails(users):
     with open("vuln2.0", "w") as f:
@@ -434,13 +434,13 @@ def send_emails(users):
         # msg = EmailMessage()
         # msg.set_content(f"{email}")
         # msg['Subject'] = "test"
-        # msg['From'] = "helpdesk@law.byu.edu"
-        # msg['To'] = 'kenneth.page@law.byu.edu'
+        # msg['From'] = ""
+        # msg['To'] = ""
         # # msg['To'] = user.get_email()
 
         # with smtplib.SMTP("smtp.gmail.com", 587) as s:
         #     s.starttls()
-        #     s.login("kenneth.page@law.byu.edu", "haqe uyno ooiu newt")
+        #     s.login("", "")
         #     s.send_message(msg)
         #     s.quit()
     pass
