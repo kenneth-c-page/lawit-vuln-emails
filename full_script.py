@@ -16,9 +16,6 @@ from oauthlib.oauth2 import BackendApplicationClient
 from devopsdriver import Settings
 
 
-VULNERABILITY_TEMPLATE = "The device labeled {0} has the following vulnerabilities that need to be updated or removed:\n{1}"
-
-
 @dataclass
 class Assignee:
     """A person"""
@@ -399,6 +396,7 @@ def get_falcon(settings: Settings):
 
 
 def parse_falcon(settings: Settings):
+    """parse falcon info"""
     assets = get_falcon(settings)
     mapping = [
         Machine(name=asset["hostname"], falcon_count=int(asset["_count"]))
@@ -409,7 +407,6 @@ def parse_falcon(settings: Settings):
 
 def falcon_email():
     """do something amazing, i guess"""
-    pass
 
 
 def add_okta_emails(mapping, users):
@@ -423,72 +420,74 @@ def add_okta_emails(mapping, users):
 
 
 def add_vulns(mapping, machines):
+    """add vulnerabilities"""
     for machine in machines:
         vulns = []
         name = machine.get_name()
         alias = machine.get_alias()
+
         try:
             try:
                 try:
                     vulns = mapping[name]["apps"]
-                    # unused_threatdown.remove(name)
-                except:
+                except Exception:  # pylint: disable=broad-exception-caught
                     if alias:
                         vulns = mapping[alias]["apps"]
-                    else:
-                        pass
-                    # unused_threatdown.remove(alias)
-                    #### ADD TO CATCH-ALL USER
-            except:
+            except Exception:  # pylint: disable=broad-exception-caught
                 try:
                     n_match, n_score = find_match(name, mapping.keys())
+
                     if n_score >= 0.8:
                         vulns = mapping[n_match]["apps"]
-                        # unused_threatdown.remove(n_match)
                     else:
                         if alias:
                             a_match, a_score = find_match(alias, mapping)
+
                             if a_score >= 0.8:
                                 vulns = mapping[a_match]["apps"]
-                        else:
-                            pass
-                            # unused_threatdown.remove(a_match)
-                            #### ADD TO CATCH-ALL USER
-                except:
+                except Exception:  # pylint: disable=broad-exception-caught
                     vulns = []
-        except:
+        except Exception:  # pylint: disable=broad-exception-caught
             vulns = []
+
         machine.set_vulns(vulns)
 
 
 def map_machines(users, machine_list):
-    no_loc_u = []
+    """map machines"""
     no_loc_m = []
-    re_pattern = r"([0-9]+[a-zA-Z]*\s[a-zA-Z]+)"
+
     for machine in machine_list:
         mach_loc = None
+
         try:
             mach_loc = machine.get_location().upper()
-        except:
+
+        except Exception:  # pylint: disable=broad-exception-caught
             no_loc_m.append(machine)
             continue
+
         for user in users:
             u_loc = None
             try:
                 u_loc = user.get_location()
-            except:
+
+            except Exception:  # pylint: disable=broad-exception-caught
                 continue
+
             if u_loc.upper() == mach_loc.upper():
                 if machine not in user.get_machines():
                     user.add_machines(machine)
                     machine.add_users(user.get_name())
+
         if not machine.get_assignment():
             no_loc_m.append(machine)
+
     users.append(
         Assignee(
             name="459 JRCB",
             cat="loc",
-            machines=[mach for mach in no_loc_m],
+            machines=list(no_loc_m),
             loc="459 JRCB",
             email="",
         )
@@ -496,59 +495,56 @@ def map_machines(users, machine_list):
 
 
 def send_emails(users):
-    with open("vuln2.0", "w") as f:
+    """send emails"""
+    with open("vuln2.0", "w", encoding="utf-8") as f:
         f.write("")
+
     for user in users:
         email = user.format_email()
-        with open("vuln2.0", "a") as f:
-            f.write(f"{email}\n")
-        # print(f"{user.get_email()}\n{email}")
-        # msg = EmailMessage()
-        # msg.set_content(f"{email}")
-        # msg['Subject'] = "test"
-        # msg['From'] = ""
-        # msg['To'] = ""
-        # # msg['To'] = user.get_email()
 
-        # with smtplib.SMTP("smtp.gmail.com", 587) as s:
-        #     s.starttls()
-        #     s.login("", "")
-        #     s.send_message(msg)
-        #     s.quit()
-    pass
+        with open("vuln2.0", "a", encoding="utf-8") as f:
+            f.write(f"{email}\n")
 
 
 def compare_names(n1, n2):
+    """compare em"""
     score = SequenceMatcher(None, n1.upper(), n2.upper()).ratio()
     return score
 
 
 def find_match(name, names):
+    """find best match"""
     best_match = ""
     best_score = 0.0
+
     for n in names:
         score = compare_names(name, n)
+
         if score > best_score:
             best_score = score
             best_match = n
+
     return best_match, best_score
 
 
 def main():
+    """lets go"""
+    settings = Settings(__file__)
     month = int(datetime.now().month)
-    users = parse_snipe_users()
+    users = parse_snipe_users(settings)
+
     if month % 2 == 1:
-        assets = parse_snipe_assets()
-        users_to_emails = parse_okta()
+        assets = parse_snipe_assets(settings)
+        users_to_emails = parse_okta(settings)
         add_okta_emails(users_to_emails, users)
-        vulns = parse_threatdown()
+        vulns = parse_threatdown(settings)
         add_vulns(vulns, assets)
         ####### NEXT STEPS #######
         map_machines(users, assets)
         send_emails(users)
     else:
-        assets = parse_falcon()
-        vulns = parse_threatdown()
+        assets = parse_falcon(settings)
+        vulns = parse_threatdown(settings)
         add_vulns(vulns, assets)
         falcon_email()  # DEFINE
 
