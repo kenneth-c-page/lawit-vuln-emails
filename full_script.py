@@ -3,176 +3,41 @@ import json
 import re
 import smtplib
 import time
-import datetime
 from difflib import SequenceMatcher
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import BackendApplicationClient
 from email.message import EmailMessage
 from email.mime.text import MIMEText
 
-class Assignee():
-    def __init__(self, cat=None, machines=None, name=None, email=None, loc=None):
-        self.cat = cat
-        self.machines = machines if machines is not None else []
-        self.name = name
-        self.email = email
-        self.loc = loc
+def main():
+    # name : {login : addr, email : addr}
+    name_to_email = parse_okta()
 
-    def set_type(self, cat):
-        if type(cat) == str:
-            self.cat = cat
-        else:
-            raise TypeError(f"{cat} is NOT a string.")
-        
-    def set_machines(self, machines):
-        if type(machines) == list:
-            self.machines = machines
-        else:
-            self.machines = [machines]
+    # asset : {assignee : name, loc_type : type}
+    device_to_location = parse_snipe_assets()
     
-    def add_machines(self, machines):
-        if type(machines) == list:
-            self.machines += machines
-        else:
-            self.machines.append(machines)
-    
-    def set_location(self, loc):
-        self.loc = loc
-    
-    def set_name(self, name):
-        self.name = f"{name}"
-    
-    def set_email(self, email):
-        self.email = f"{email}"
-    
-    def get_type(self):
-        return self.cat
-    
-    def get_name(self):
-        return self.name
-    
-    def get_machines(self):
-        return self.machines
-    
-    def get_email(self):
-        return self.email
-    
-    def get_location(self):
-        return self.loc
-    
-    def format_email(self):
-        if self.machines:
-            formatted_vulnerabilities = []
-            for machine in self.machines:
-                sanitized = ""
-                if len(machine.get_vulns()) > 0:
-                    for vuln in machine.get_vulns():
-                        if "Adobe" in vuln:
-                            if not "Adobe" in sanitized:
-                                sanitized += f"\n\t- Adobe Products"
-                        else:
-                            sanitized += f"\n\t- {vuln}"
-                    vulns = f"The device labeled {machine.tag} has the following vulnerabilities that need to be updated or removed:\n\t- A Windows/Mac system update if available{sanitized}"
-                    formatted_vulnerabilities.append(vulns)
-            content = """
-Hi {0}!
+    # location_name : [all_users_in_loc]
+    snipe_users = parse_snipe_users()
 
-In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
+    # assest: vulnerable applications
+    vulns = parse_threatdown()
 
-{1}
+    # asset : [all_applicable_users]
+    asset_to_user = map_asset_to_user(device_to_location, snipe_users)
 
-If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
+    # asset : {users : [all_users], vulnerabilities : [all_vulnerable_applications]}
+    expanded_assets = expand_assets(asset_to_user, vulns)
 
-If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
-
-Thank you!
-Best regards,
-Kenneth Page
-        """.format(self.name.split()[0].title(), f"\n".join(formatted_vulnerabilities))
-            return content
-
-class Machine():
-    def __init__(self, name=None, users=None, loc=None, tag=None, vulns=None, alias=None, falcon_count=None):
-        self.users = users if users is not None else []
-        self.loc = loc
-        self.tag = tag
-        self.vulns = vulns if vulns is not None else []
-        self.name = name
-        self.alias = alias
-        self.assigned = True if self.users else False
-        self.falcon_count = falcon_count if falcon_count is not None else 0
-
-    def set_users(self, user_list):
-        if type(user_list) == list:
-            self.users = user_list
-        else:
-            self.users = [user_list]
+    # email : {name : name, updates : {asset_name : [all_vulnerable_apps]}}
+    email_mapping = map_asset_to_emails(expanded_assets, name_to_email)
     
-    def add_users(self, user_list):
-        try:
-            if type(user_list) == list:
-                self.users += user_list
-            else:
-                self.users.append(user_list)
-        except:
-            self.users = user_list if type(user_list) == list else [user_list]
-
-    def set_vulns(self, vuln_list):
-        if type(vuln_list) == list:
-            self.vulns = vuln_list
-        else:
-            self.vulns = [vuln_list]
-    
-    def add_vulns(self, vuln_list):
-        try:
-            if type(vuln_list) == list:
-                self.vulns += vuln_list
-            else:
-                self.vulns.append(vuln_list)
-        except:
-            self.vulns = vuln_list if type(vuln_list) == list else [vuln_list]
-    
-    def set_tag(self, tag):
-        self.tag = tag
-    
-    def set_loc(self, loc):
-        self.loc = loc
-
-    def set_alias(self, alias):
-        self.alias = alias
-    
-    def set_falcon_count(self, count):
-        self.falcon_count = count
-
-    def get_users(self):
-        return self.users
-    
-    def get_location(self):
-        return self.loc
-    
-    def get_vulns(self):
-        return self.vulns
-    
-    def get_tag(self):
-        return self.tag
-    
-    def get_alias(self):
-        return self.alias
-    
-    def get_name(self):
-        return self.name
-
-    def assgin(self):
-        self.assign = True
-    
-    def unassign(self):
-        self.assign = False
-    
-    def get_assignment(self):
-        return self.users if self.users else False
-    
-    def get_falcon_count(self):
-        return self.falcon_count
+    emails = format_emails(email_mapping)
+    with open("vuln1.0", "w") as f:
+        f.write("")
+    for email in emails:
+        addr = [key for key in email.keys()][0]
+        send_email(email[addr])
+        time.sleep(2)
 
 def get_snipe(endpoint):
     URL = f"https://jrcb-snipe-it.byu.edu/api/v1/{endpoint}"
@@ -193,32 +58,31 @@ def get_snipe(endpoint):
 
 def parse_snipe_assets():
     assets = get_snipe("hardware")
-    mapping = []
+    mapping = {}
     for asset in assets:
         assignee = asset["assigned_to"]
         device = asset["name"]
         if not asset["category"]["name"] in ["Printer", "Monitors"]:
-            new_mach = Machine(name=device, users=assignee, tag=asset["asset_tag"])
-
             if (asset["location"] or asset["rtd_location"]):
                 try:
-                    new_mach.set_loc(asset["location"]["name"])
+                    mapping[device] = {"loc":asset["location"]["name"],"tag":asset["asset_tag"]}
                 except:
-                    new_mach.set_loc(asset["rtd_location"]["name"])
+                    mapping[device] = {"loc":asset["rtd_location"]["name"],"tag":asset["asset_tag"]}
             elif asset["status_label"]["status_type"] == "pending":
-                new_mach.set_loc(f"{re.findall(r"[0-9a-zA-Z]+", device)[0]} JRCB")
-            mapping.append(new_mach)
+                mapping[device] = {"loc":f"{re.findall(r"[0-9a-zA-Z]+", device)[0]} JRCB","tag":asset["asset_tag"]}
     return mapping
 
 def parse_snipe_users():
     users = get_snipe("users")
-    mapping = []
+    mapping = {}
     for user in users:
         try:
-            new_user = Assignee(name=user["name"], loc=user["location"]["name"])
-            mapping.append(new_user)
+            mapping[user["location"]["name"]] += [user["name"]]
         except:
-            pass
+            try:
+                mapping[user["location"]["name"]] = [user["name"]]
+            except:
+                pass
     return mapping
 
 def get_okta():
@@ -255,7 +119,6 @@ def get_threatdown():
     ACCOUNT_ID = ""
     CLIENT_ID = ""
     CLIENT_SECRET = ""
-
     # Base URL for ThreatDown API
     BASE_URL = "https://api.threatdown.com"
     REPORT_ID = ""
@@ -326,156 +189,135 @@ def parse_threatdown():
             mapping[name.upper()] = {"apps":[app],"alias":alias.upper() if alias else None}
     return mapping
 
-def get_falcon():
-    falcon_token = ""
-    URL = "https://oit-humio.byu.edu/api/v1/repositories/law_oit_shared/query"
-    query = '"remediation_actions": "Microsoft" and "hostname": not "JRCB*" and "hostname": not "PROX" | groupBy(hostname, limit="max") | sort(_count)'
-    payload = {
-        "queryString":query,
-        "start":"31days",
-        "end":"now",
-        "isLive":False
-    }
-    HEADERS = {
-        "Authorization":f"Bearer {falcon_token}",
-        "Content-Type":"application/json",
-        "Accept":"application/json"
-    }
-    response = requests.post(URL, headers=HEADERS, data=json.dumps(payload)).json()
-    return response
-
-def parse_falcon():
-    assets = get_falcon()
-    mapping = [Machine(name=asset["hostname"],falcon_count=int(asset["_count"])) for asset in assets]
+def map_asset_to_user(device_map, user_map):
+    # asset : loc
+    # location_name : [all_users_in_loc]
+    mapping = {}
+    for asset in device_map.keys():
+        loc = device_map[asset]["loc"]
+        tag = device_map[asset]["tag"]
+        try:
+            mapping[asset.upper()] = {"users":[user.upper() for user in user_map[loc]],"tag":tag}
+        except:
+            mapping[asset.upper()] = {"users":[loc.upper()],"tag":tag}
     return mapping
 
-def falcon_email():
-    pass
-
-def add_okta_emails(mapping, users):
-    for user in users:
-        name = user.get_name()
-        match, score = find_match(name, mapping.keys())
-        if score >= 0.8:
-            user.set_email(mapping[match]["email"])
-
-def add_vulns(mapping, machines):
-    unused_threatdown = [key for key in mapping.keys()]
-    for machine in machines:
-        vulns = []
-        name = machine.get_name()
-        alias = machine.get_alias()
+def map_asset_to_emails(devices_to_users, users_to_email):
+    # asset : {users : [all_users], vulnerabilities : [all_vulnerable_applications]}
+    # name : {login : addr, email : addr}
+    # email : {name : name, updates : {asset_name : [all_vulnerable_apps]}}
+    mapping = {}
+    users_to_vulnerabilities = {}
+    for asset in devices_to_users:
+        for user in devices_to_users[asset]["users"]:
+            try:
+                users_to_vulnerabilities[user][asset] = {"vulns":devices_to_users[asset]["vulnerabilities"],"tag":devices_to_users[asset]["tag"]}
+            except:
+                users_to_vulnerabilities[user] = {asset:{"vulns":devices_to_users[asset]["vulnerabilities"],"tag":devices_to_users[asset]["tag"]}}
+    names = users_to_email.keys()
+    for user in users_to_vulnerabilities:
+        if len(re.findall(f"[0-9]+", user)) == 0:
+            match, score = compare_names(user, names)
+            if score >= 0.8:
+                # names is from email keys
+                mapping[users_to_email[match]["email"]] = {user:users_to_vulnerabilities[user]}
+        else:
+            mapping[user] = {user:users_to_vulnerabilities[user]}
+    accounted_vulns = 0
+    for email in mapping:
+        accounted_vulns+=len(mapping[email].keys())
+    return mapping
+    
+def expand_assets(asset_to_users, vulns):
+    unused_threatdown = []
+    expanded_assets = {}
+    for asset in vulns:
         try:
             try:
-                try:
-                    vulns = mapping[name]["apps"]
-                    # unused_threatdown.remove(name)
-                except:
-                    if alias:
-                        vulns = mapping[alias]["apps"]
-                    else:
-                        pass
-                    # unused_threatdown.remove(alias)
-                    #### ADD TO CATCH-ALL USER
+                expanded_assets[asset] = {"users":asset_to_users[asset]["users"], "vulnerabilities":vulns[asset]["apps"], "tag":asset_to_users[asset]["tag"]}
             except:
-                try:
-                    n_match, n_score = find_match(name, mapping.keys())
-                    if n_score >= 0.8:
-                        vulns = mapping[n_match]["apps"]
-                        # unused_threatdown.remove(n_match)
-                    else:
-                        if alias:
-                            a_match, a_score = find_match(alias, mapping)
-                            if a_score >= 0.8:
-                                vulns = mapping[a_match]["apps"]
-                        else:
-                            pass
-                                # unused_threatdown.remove(a_match)
-                                #### ADD TO CATCH-ALL USER
-                except:
-                    vulns = []
+                expanded_assets[vulns[asset]["alias"]] = {"users":asset_to_users[vulns[asset]["alias"]]["users"], "vulnerabilities":vulns[asset]["apps"], "tag":asset_to_users[vulns[asset]["alias"]]["tag"]}
         except:
-            vulns=[]
-        machine.set_vulns(vulns)
+            best_match, score = compare_names(asset, asset_to_users)
+            if score >= 0.8:
+                if not best_match in expanded_assets.keys():
+                    expanded_assets[best_match] = {"users":asset_to_users[best_match]["users"], "vulnerabilities":vulns[asset]["apps"], "tag":asset_to_users[best_match]["tag"]}
+                else:
+                    unused_threatdown.append(asset)
+            else:
+                unused_threatdown.append(asset)
+    return expanded_assets
 
-def map_machines(users, machine_list):
-    no_loc_u = []
-    no_loc_m = []
-    re_pattern = r"([0-9]+[a-zA-Z]*\s[a-zA-Z]+)"
-    for machine in machine_list:
-        mach_loc = None
-        try:
-            mach_loc = machine.get_location().upper()
-        except:
-            no_loc_m.append(machine)
-            continue
-        for user in users:
-            u_loc = None
-            try:
-                u_loc = user.get_location()
-            except:
-                continue
-            if u_loc.upper() == mach_loc.upper():
-                if machine not in user.get_machines():
-                    user.add_machines(machine)
-                    machine.add_users(user.get_name())
-        if not machine.get_assignment():
-            no_loc_m.append(machine)
-    users.append(Assignee(name="459 JRCB", cat="loc", machines=[mach for mach in no_loc_m], loc="459 JRCB", email=""))
-            
-def send_emails(users):
-    with open("vuln2.0", "w") as f:
-        f.write("")
-    for user in users:
-        email = user.format_email()
-        with open("vuln2.0", "a") as f:
-            f.write(f"{email}\n")
-        # print(f"{user.get_email()}\n{email}")
-        # msg = EmailMessage()
-        # msg.set_content(f"{email}")
-        # msg['Subject'] = "test"
-        # msg['From'] = ""
-        # msg['To'] = ""
-        # # msg['To'] = user.get_email()
+def match_names(name1, names):
+    n1 = name1.lower().split(" ")
+    for name in names:
+        n2 = name.lower().split(" ")
+        overlap = list(set(n1) & set(n2))
+        if len(overlap) >= 2:
+            return overlap
+    return False
 
-        # with smtplib.SMTP("smtp.gmail.com", 587) as s:
-        #     s.starttls()
-        #     s.login("", "")
-        #     s.send_message(msg)
-        #     s.quit()
-    pass
-
-def compare_names(n1, n2):
-    score = SequenceMatcher(None, n1.upper(), n2.upper()).ratio()
-    return score
-
-def find_match(name, names):
+def compare_names(name, names):
     best_match = ""
     best_score = 0.0
     for n in names:
-        score = compare_names(name, n)
+        score = SequenceMatcher(None, n.upper(), name.upper()).ratio()
         if score > best_score:
             best_score = score
             best_match = n
     return best_match, best_score
 
-def main():
-    month = int(datetime.datetime.now().month)
-    users = parse_snipe_users()
-    if month % 2 == 1:
-        assets = parse_snipe_assets()
-        users_to_emails = parse_okta()
-        add_okta_emails(users_to_emails, users)
-        vulns = parse_threatdown()
-        add_vulns(vulns, assets)
-        ####### NEXT STEPS #######
-        map_machines(users, assets)
-        send_emails(users)
-    else:
-        assets = parse_falcon()
-        vulns = parse_threatdown()
-        add_vulns(vulns, assets)
-        falcon_email() # DEFINE
+def format_emails(contents):
+    # email : {name : {asset_name : [all_vulnerable_apps]}}
+    emails = []
+    for addr in contents:
+        to_use = contents[addr]
+        name = [name for name in to_use.keys()][0]
+        assets = to_use[name].keys()
+        formatted_vulnerabilities = []
+        for asset in assets:
+            sanitized = ""
+            for vuln in to_use[name][asset]["vulns"]:
+                if "Adobe" in vuln:
+                    if not "Adobe" in sanitized:
+                        sanitized += f"\n\t- Adobe Products"
+                else:
+                    sanitized += f"\n\t- {vuln}"
+            vulns = f"The device labeled {to_use[name][asset]["tag"]} has the following vulnerabilities that need to be updated or removed:\n\t- A Windows/Mac system update if available{sanitized}"
+            formatted_vulnerabilities.append(vulns)
+        content = """
+Hi {0}!
+
+In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
+
+{1}
+
+If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
+
+If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
+
+Thank you!
+Best regards,
+Kenneth Page
+        """.format(name.split()[0].title(), f"\n".join(formatted_vulnerabilities))
+        emails.append({addr:content})
+    return emails
+
+def send_email(contents):
+    with open("vuln1.0", "a") as f:
+        f.write(f"{contents}\n")
+    # msg = EmailMessage()
+    # msg.set_content(f"{contents}")
+    # msg['Subject'] = "test"
+    # msg['From'] = ""
+    # msg['To'] = ''
+
+    # with smtplib.SMTP("smtp.gmail.com", 587) as s:
+    #     s.starttls()
+    #     s.login("", "")
+    #     s.send_message(msg)
+    #     s.quit()
+    pass
 
 if __name__ == "__main__":
     main()
