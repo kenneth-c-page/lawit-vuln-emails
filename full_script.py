@@ -328,7 +328,7 @@ def parse_threatdown():
 
 def get_falcon():
     falcon_token = ""
-    URL = "https://oit-humio.byu.edu/api/v1/repositories/law_oit_shared/query"
+    URL = ""
     query = '"remediation_actions": "Microsoft" and "hostname": not "JRCB*" and "hostname": not "PROX" | groupBy(hostname, limit="max") | sort(_count)'
     payload = {
         "queryString":query,
@@ -394,8 +394,12 @@ def add_vulns(mapping, machines):
                                 #### ADD TO CATCH-ALL USER
                 except:
                     vulns = []
+                    # print(f"{name} had best match of: {find_match(name, mapping.keys())}")
+                    # print(f"{name} - {alias} had best match of: {find_match(alias, mapping.keys())}")
         except:
             vulns=[]
+            # print(f"{name} had best match of: {find_match(name, mapping.keys())}")
+            # print(f"{name} - {alias} had best match of: {find_match(alias, mapping.keys())}")
         machine.set_vulns(vulns)
 
 def map_machines(users, machine_list):
@@ -434,8 +438,8 @@ def send_emails(users):
         # msg = EmailMessage()
         # msg.set_content(f"{email}")
         # msg['Subject'] = "test"
-        # msg['From'] = ""
-        # msg['To'] = ""
+        # msg['From'] = 
+        # msg['To'] = 
         # # msg['To'] = user.get_email()
 
         # with smtplib.SMTP("smtp.gmail.com", 587) as s:
