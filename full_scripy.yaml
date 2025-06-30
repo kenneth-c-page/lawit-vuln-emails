@@ -1,0 +1,112 @@
+falcon:
+  url: https://oit-humio.byu.edu/api/v1/repositories/law_oit_shared/query
+  timeout in seconds: 10
+  headers:
+    Authorization: Bearer {0}
+    Content-Type: application/json
+    Accept: application/json
+  payload:
+    queryString: >
+      "remediation_actions": "Microsoft" 
+      and "hostname": not "JRCB*" 
+      and "hostname": not "PROX" 
+      | groupBy(hostname, limit="max") 
+      | sort(_count)
+    start: 31days
+    end: now
+    isLive: false
+
+okta:
+  url: https://ces-byulaw-admin.okta.com/api/v1/users
+  timeout in seconds: 10
+  pagination: 1000
+  headers:
+    Authorization: SSWS {0}
+    Accept: application/json
+
+snipe:
+  url: https://jrcb-snipe-it.byu.edu/api/v1/{0}/?limit={1}&offset={2}
+  timeout in seconds: 10
+  pagination: 500
+  headers:
+    Authorization: Bearer {0}
+    Content-Type: application/json
+    Accept: application/json
+
+threatdown:
+  token url: https://api.threatdown.com/oauth2/token
+  reports url: https://api.threatdown.com/nebula/v1/reports/{0}"
+  export url: https://api.threatdown.com/nebula/v1/cve/export
+  scope: # Adjust scopes based on API requirements
+    - read
+    - write
+    - execute
+  export body:
+    format: json
+    download: true
+    select:
+      - field: host_name
+        newField: Name
+      - field: host_name
+        newField: Name
+      - field: product
+        newField: Application
+      - field: machine_id
+        newField: Machine_ID
+      - field: alias
+        newField: Alias
+      - field: fully_qualified_host_name
+        newField: Full_Hostname
+    groups:
+      - installation_date_after: "2000-01-01T12:00:00Z"
+      - page_size: 2000
+
+vulnerability: The device labeled {0} has the following vulnerabilities that need to be updated or removed:\n{1}
+
+email body: |
+  Hi {0}!
+
+  In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
+
+  {1}
+
+  If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
+
+  If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
+
+  Thank you!
+  Best regards,
+  Kenneth Page
+
+secrets: # run `settings --secrets --script full_script.py` to set these values
+  snipe.token: snipe/token
+  okta.token: okta/token
+  falcon.token: falcon/token
+  threatdown.account: threatdown/account
+  threatdown.client: threatdown/client
+  threatdown.secret: threatdown/secret
+  threatdown.report: threatdown/report
+  smtp.password: smtp/password
+  smtp.sender: smtp/sender
+
+cli: # or pass them on the command line
+  snipe.token: --snipe-token
+  okta.token: --okta-token
+  falcon.token: --falcon-token
+  threatdown.account: --threatdown-account
+  threatdown.client: --threatdown-client
+  threatdown.secret: --threatdown-secret
+  threatdown.report: --threatdown-report
+  smtp.password: --smtp-password
+  smtp.sender: --smtp-sender
+
+env: # or set them in the environment
+  snipe.token: SNIPE_TOKEN
+  okta.token: OKTA_TOKEN
+  falcon.token: FALCON_TOKEN
+  threatdown.account: THREATDOWN_ACCOUNT
+  threatdown.client: THREATDOWN_CLIENT
+  threatdown.secret: THREATDOWN_SECRET
+  threatdown.report: THREATDOWN_REPORT
+  smtp.sender: SMTP_SENDER
+  smtp.password: SMTP_PASSWORD
