@@ -489,6 +489,7 @@ def find_match(name, names):
     return best_match, best_score
 
 def main():
+    settings = Settings(__file__).key("secrets").cli("cli").env("env")
     month = int(datetime.datetime.now().month)
     users = parse_snipe_users()
     if month % 2 == 1:

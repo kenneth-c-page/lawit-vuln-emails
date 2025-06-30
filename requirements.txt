@@ -1,0 +1,5 @@
+# python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+requests==2.32.3
+oauthlib==3.2.2
+requests-oauthlib==2.0.0
+devopsdriver==0.1.49
