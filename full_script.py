@@ -118,46 +118,6 @@ class Machine:  # pylint: disable=too-many-instance-attributes
 
     # Use properties to simplify getter/setter methods
     @property
-    def loc(self):
-        """machine.loc"""
-        return self._loc
-
-    @loc.setter
-    def loc(self, value):
-        """machine.loc ="""
-        self._loc = value
-
-    @property
-    def tag(self):
-        """machine.tag"""
-        return self._tag
-
-    @tag.setter
-    def tag(self, value):
-        """machine.tag ="""
-        self._tag = value
-
-    @property
-    def alias(self):
-        """machine.alias"""
-        return self._alias
-
-    @alias.setter
-    def alias(self, value):
-        """machine.alias="""
-        self._alias = value
-
-    @property
-    def falcon_count(self):
-        """machine.falcon_count"""
-        return self._falcon_count
-
-    @falcon_count.setter
-    def falcon_count(self, value):
-        """machine.falcon_count ="""
-        self._falcon_count = value
-
-    @property
     def users(self):
         """machine.users"""
         return self._users
