@@ -61,7 +61,7 @@ class Assignee():
     def get_location(self):
         return self.loc
     
-    def format_email(self):
+    def format_email(self, settings: Settings):
         if self.machines:
             formatted_vulnerabilities = []
             for machine in self.machines:
@@ -74,33 +74,24 @@ class Assignee():
                         else:
                             sanitized += f"\n\t- {vuln}"
                     correct_identifier = "labeled " + machine.tag if machine.tag else machine.name
-                    vulns = f"The device {correct_identifier} has the following vulnerabilities that need to be updated or removed:\n\t- A Windows/Mac system update if available{sanitized}"
+                    vulns = settings["vulnerability"].format(correct_identifier, sanitized)
                     formatted_vulnerabilities.append(vulns)
-                else:
-                    pass
-            content = """
-Hi {0}!
-
-In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
-
-{1}
-
-If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
-
-If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
-
-Thank you!
-Best regards,
-Kenneth Page
-
-NOTICE:
-We are testing a new automated email to make these messages more practical for you and make this process a better experience.
-If you suspect that this email isn't intended for you (i.e., it is addressed to someone else, ALL the devices listed are not yours, etc.), or you can't find the listed devices, let us know so we can better help secure your devices and improve these emails.
-        """.format(self.name.split()[0].title(), f"\n".join(formatted_vulnerabilities))
+            content = settings["email body"].format(
+                self.name.split()[0].title(), f"\n".join(formatted_vulnerabilities)
+            )
             return content if len(formatted_vulnerabilities) > 0 else False
 
 class Machine():
-    def __init__(self, name=None, users=None, loc=None, tag=None, vulns=None, alias=None, falcon_count=None, assignee=None):
+    def __init__(
+            self,
+            name=None,
+            users=None,
+            loc=None,
+            tag=None,
+            vulns=None,
+            alias=None,
+            falcon_count=None,
+            assignee=None):
         self.users = users if users is not None else []
         self.loc = loc
         self.tag = tag
@@ -192,27 +183,32 @@ class Machine():
     def get_falcon_count(self):
         return self.falcon_count
     
-def get_snipe(endpoint):
-    URL = f"https://jrcb-snipe-it.byu.edu/api/v1/{endpoint}"
-    api_token = ""
-    HEADERS = {"Authorization":"Bearer " + api_token,"Content-Type":"application/json","Accept":"application/json"}
+def get_snipe(endpoint, settings: Settings):
+    HEADERS = {
+        h: v.format(settings["snipe.token"])
+        for h, v in settings["snipe.headers"].items()
+    }
     all_rows = []
     offset = 0
     while True:
-        new_url = f"{URL}?limit=500&offset={offset}"
+        new_url = settings["snipe.url"].format(
+            endpoint, settings["snipe.pagination"], offset
+        )
         req = requests.get(url = new_url, headers = HEADERS)
         print(req)
-        response = req.json()
+        response = requests.get(
+            url=new_url, headers=HEADERS, timeout=settings["snipe.timeout in seconds"]
+        ).json()
         total = response.get("total", 0)
         rows = response.get("rows", [])
         all_rows.extend(rows)
-        if len(rows) < 500 or offset + len(rows) >= total:
+        if len(rows) < settings["snipe.pagination"] or offset + len(rows) >= total:
             break
-        offset += 500
+        offset += settings["snipe.pagination"]
     return all_rows
 
-def parse_snipe_assets():
-    assets = get_snipe("hardware")
+def parse_snipe_assets(settings: Settings):
+    assets = get_snipe("hardware", settings)
     mapping = []
     for asset in assets:
         assignee = asset["assigned_to"]
@@ -230,8 +226,8 @@ def parse_snipe_assets():
             mapping.append(new_mach)
     return mapping
 
-def parse_snipe_users():
-    users = get_snipe("users")
+def parse_snipe_users(settings: Settings):
+    users = get_snipe("users", settings)
     mapping = []
     for user in users:
         try:
@@ -241,33 +237,34 @@ def parse_snipe_users():
             pass
     return mapping
 
-def get_okta():
-    URL = "https://ces-byulaw-admin.okta.com/api/v1/users"
-    api_token = ""
-    HEADERS = {"Authorization":"SSWS " + api_token,"Accept":"application/json"}
+def get_okta(settings: Settings):
+    URL = settings["okta.url"]
+    HEADERS = {
+        h: v.format(settings["okta.token"]) for h, v in settings["okta.headers"].items()
+    }
     users = []
     while URL:
-        r = requests.get(url = URL, headers = HEADERS)
+        r = requests.get(url = URL, headers = HEADERS, timeout=settings["okta.timeout in seconds"])
         users += r.json()
 
         link_header = r.headers["link"]
-        if link_header:# and 'rel="next"' in link_header:
-            # match = re.findall(r'<([^>]+)>; rel="next"', link_header)
+        if link_header:
             match = r.links.get('next', {}).get('url')
-            # URL = match[0] if match else None
             URL = match if match else None
         else:
             URL = None
     return users
 
-def parse_okta():
-    users = get_okta()
+def parse_okta(settings: Settings):
+    users = get_okta(settings)
     mapping = {}
     for user in users:
         profile = user['profile']
         if not "student" in "".join([pos for pos in profile['position']]):
-            mapping[f'{profile["firstName"]} {profile["lastName"]}'] = {"login":profile["login"], "email":profile["email"]}
-        # mapping[f"{user["displayName"]}"] = {"login":profile["login"], "email":profile["email"]}
+            mapping[f'{profile["firstName"]} {profile["lastName"]}'] = {
+                "login":profile["login"],
+                "email":profile["email"]
+            }
     return mapping
 
 def get_threatdown():
