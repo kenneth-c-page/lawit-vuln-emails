@@ -9,6 +9,7 @@ from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import BackendApplicationClient
 from email.message import EmailMessage
 from email.mime.text import MIMEText
+from devopsdriver import Settings
 
 class Assignee():
     def __init__(self, cat=None, machines=None, name=None, email=None, loc=None):
@@ -456,22 +457,18 @@ def send_emails(users):
         f.write("")
     for user in users:
         email = user.format_email()
-        # if email: #because it returns false if the machine doesn't have any vulnerabilities
-        #     with open("vuln2.0", "a") as f:
-        #         f.write(f"{user.name} : {user.email}\n")
-        #         f.write(f"{email}\n")
-        msg = EmailMessage()
-        msg.set_content(f"{email}")
-        msg['Subject'] = "test"
-        msg['From'] = ""
-        # msg['To'] = user.get_email()
-        msg['To'] = user.get_email() if user.get_email() else ""
+        if email: #because it returns false if the machine doesn't have any vulnerabilities
+            msg = EmailMessage()
+            msg.set_content(f"{email}")
+            msg['Subject'] = "test"
+            msg['From'] = ""
+            msg['To'] = user.get_email() if user.get_email() else ""
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as s:
-            s.starttls()
-            s.login("...", "...")
-            s.send_message(msg)
-            s.quit()
+            with smtplib.SMTP("smtp.gmail.com", 587) as s:
+                s.starttls()
+                s.login("...", "...")
+                s.send_message(msg)
+                s.quit()
     pass
 
 def compare_names(n1, n2):
