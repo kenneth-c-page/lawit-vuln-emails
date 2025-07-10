@@ -323,7 +323,8 @@ def get_threatdown(settings: Settings):
     return get_all_reports(get_oauth_client(CLIENT_ID, CLIENT_SECRET, ACCOUNT_ID))
 
 def parse_threatdown(settings: Settings):
-    vulns = get_threatdown()
+    vulns = get_threatdown(settings)
+    print(vulns)
     mapping = {}
     for vuln in vulns:
         name = vuln["Name"]
@@ -448,7 +449,7 @@ def map_machines(users, machine_list):
 
     users.append(Assignee(name="459 JRCB", cat="loc", machines=[mach for mach in no_loc_m], loc="459 JRCB", email=""))
             
-def send_emails(users):
+def send_emails(users, settings: Settings):
     with open("vuln2.0", "w") as f:
         f.write("")
     for user in users:
@@ -457,12 +458,12 @@ def send_emails(users):
             msg = EmailMessage()
             msg.set_content(f"{email}")
             msg['Subject'] = "test"
-            msg['From'] = ""
-            msg['To'] = user.get_email() if user.get_email() else ""
+            msg['From'] = settings["smtp.sender"]
+            msg['To'] = "kenneth.page@law.byu.edu" # user.get_email() if user.get_email() else ""
 
             with smtplib.SMTP("smtp.gmail.com", 587) as s:
                 s.starttls()
-                s.login("...", "...")
+                s.login(settings["smtp.sender"], settings["smtp.password"])
                 s.send_message(msg)
                 s.quit()
     pass
@@ -484,7 +485,7 @@ def find_match(name, names):
 def main():
     settings = Settings(__file__).key("secrets").cli("cli").env("env")
     month = int(datetime.datetime.now().month)
-    users = parse_snipe_users()
+    users = parse_snipe_users(settings)
     if month % 2 == 1:
         assets = parse_snipe_assets(settings)
         users_to_emails = parse_okta(settings)
@@ -493,7 +494,7 @@ def main():
         unused_vulns = add_vulns(vulns, assets)
         users.append(unused_vulns)
         map_machines(users, assets)
-        send_emails(users)
+        send_emails(users, settings)
     else:
         assets = parse_falcon(settings)
         vulns = parse_threatdown(settings)
