@@ -267,19 +267,16 @@ def parse_okta(settings: Settings):
             }
     return mapping
 
-def get_threatdown():
+def get_threatdown(settings: Settings):
     # Replace with your actual credentials from ThreatDown OneView
-    ACCOUNT_ID = ""
-    CLIENT_ID = ""
-    CLIENT_SECRET = ""
-
-    # Base URL for ThreatDown API
-    BASE_URL = "https://api.threatdown.com"
-    REPORT_ID = ""
+    ACCOUNT_ID = settings["threatdown.account"]
+    CLIENT_ID = settings["threatdown.client"]
+    CLIENT_SECRET = settings["threatdown.secret"]
+    REPORT_ID = settings["threatdown.report"]
 
     def get_oauth_client(client_id, client_secret, account_id):
         """Authenticate and return an OAuth2 session client."""
-        client_scope = ["read", "write", "execute"]  # Adjust scopes based on API requirements
+        client_scope = settings["threatdown.scope"]
         headers = {"accountid": account_id}
         
         client = BackendApplicationClient(client_id=client_id, scope=client_scope)
@@ -288,7 +285,7 @@ def get_threatdown():
         
         try:
             token = session.fetch_token(
-                token_url=f"{BASE_URL}/oauth2/token",
+                token_url=settings["threatdown.token url"],
                 client_secret=client_secret,
                 scope=" ".join(client_scope)
             )
@@ -301,33 +298,31 @@ def get_threatdown():
         reports = []
         next_cursor = ""
         page_size = 1000  # Adjust based on API limits or documentation
-        url = f"{BASE_URL}/nebula/v1/reports/{REPORT_ID}"
+        url = settings["threatdown.reports url"].format(REPORT_ID)
         token = client.fetch_token(
-                token_url=f"{BASE_URL}/oauth2/token",
+                token_url=settings["threatdown.token url"],
                 client_secret=CLIENT_SECRET,
-                scope=" ".join(["read", "write", "execute"]))
-        HEADERS = {"content-type":"application/json","authorization": f'Bearer {token["access_token"]}',"accountid":ACCOUNT_ID}
-
-        exp_url = "https://api.threatdown.com/nebula/v1/cve/export"
-        exp_report = []
-        # while True:
-        EXP_BODY = {
-            "format":"json",
-            "download":True,
-            "select":[{"field":"host_name","newField":"Name"},
-                    {"field":"product","newField":"Application"},
-                    {"field":"machine_id","newField":"Machine_ID"},
-                    {"field":"alias","newField":"Alias"},
-                    {"field":"fully_qualified_host_name","newField":"Full_Hostname"}],
-            "groups":[{"installation_date_after":"2000-01-01T12:00:00Z"},{"page_size":2000}]
+                scope=" ".join(settings["threatdown.scope"]))
+        HEADERS = {
+            "content-type":"application/json",
+            "authorization": f'Bearer {token["access_token"]}',
+            "accountid":ACCOUNT_ID
         }
 
-        exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(EXP_BODY)).json()
+        exp_url = settings["threatdown.reports url"]
+        exp_report = []
+        # while True:
+        EXP_BODY = settings["threatdown.export body"]
+
+        exp_report += client.post(
+            exp_url, headers = HEADERS,
+            data=json.dumps(EXP_BODY)
+        ).json()
         return exp_report
     
     return get_all_reports(get_oauth_client(CLIENT_ID, CLIENT_SECRET, ACCOUNT_ID))
 
-def parse_threatdown():
+def parse_threatdown(settings: Settings):
     vulns = get_threatdown()
     mapping = {}
     for vuln in vulns:
@@ -338,32 +333,36 @@ def parse_threatdown():
         except:
             alias = None
         try:
-            mapping[name.upper()]["apps"] += [app] if not app in mapping[name]["apps"] else []
+            mapping[name.upper()]["apps"] += (
+                [app] if not app in mapping[name]["apps"] else []
+            )
         except:
-            mapping[name.upper()] = {"apps":[app],"alias":alias.upper() if alias else None}
+            mapping[name.upper()] = {
+                "apps":[app],
+                "alias":alias.upper() if alias else None
+            }
     return mapping
 
-def get_falcon():
-    falcon_token = ""
-    URL = "https://oit-humio.byu.edu/api/v1/repositories/law_oit_shared/query"
-    query = '"remediation_actions": "Microsoft" and "hostname": not "JRCB*" and "hostname": not "PROX" | groupBy(hostname, limit="max") | sort(_count)'
-    payload = {
-        "queryString":query,
-        "start":"31days",
-        "end":"now",
-        "isLive":False
-    }
+def get_falcon(settings: Settings):
+    URL = settings["falcon.url"]
+    payload = settings["falcon.payload"]
     HEADERS = {
-        "Authorization":f"Bearer {falcon_token}",
-        "Content-Type":"application/json",
-        "Accept":"application/json"
+        h: v.format(settings["falcon.token"])
+        for h, v in settings["falcon.headers"].items()
     }
-    response = requests.post(URL, headers=HEADERS, data=json.dumps(payload)).json()
+    response = requests.post(
+        URL,
+        headers=HEADERS,
+        data=json.dumps(payload),
+        timeout=settings["falcon.timeout in seconds"]
+    ).json()
     return response
 
-def parse_falcon():
-    assets = get_falcon()
-    mapping = [Machine(name=asset["hostname"],falcon_count=int(asset["_count"])) for asset in assets]
+def parse_falcon(settings: Settings):
+    assets = get_falcon(settings)
+    mapping = [Machine(name=asset["hostname"],falcon_count=int(asset["_count"]))
+               for asset in assets
+    ]
     return mapping
 
 def falcon_email():
@@ -487,17 +486,17 @@ def main():
     month = int(datetime.datetime.now().month)
     users = parse_snipe_users()
     if month % 2 == 1:
-        assets = parse_snipe_assets()
-        users_to_emails = parse_okta()
+        assets = parse_snipe_assets(settings)
+        users_to_emails = parse_okta(settings)
         add_okta_emails(users_to_emails, users)
-        vulns = parse_threatdown()
+        vulns = parse_threatdown(settings)
         unused_vulns = add_vulns(vulns, assets)
         users.append(unused_vulns)
         map_machines(users, assets)
         send_emails(users)
     else:
-        assets = parse_falcon()
-        vulns = parse_threatdown()
+        assets = parse_falcon(settings)
+        vulns = parse_threatdown(settings)
         add_vulns(vulns, assets)
         falcon_email() # DEFINE
 
