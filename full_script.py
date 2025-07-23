@@ -5,11 +5,14 @@ import smtplib
 import datetime
 import pandas
 import io
+from devopsdriver import Settings
 from difflib import SequenceMatcher
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import BackendApplicationClient
 from email.message import EmailMessage
 from email.mime.text import MIMEText
+
+settings = Settings(__file__)
 
 class User():
     def __init__(self, machines=None, name=None, email=None, loc=None):
@@ -54,7 +57,7 @@ class User():
     
     def format_email(self):
         if self.machines:
-            if self.name == CATCHALL_USER:
+            if self.name == settings["CATCHALL_USER"]:
                 content = f"Hi HelpDesk!\nThe following assets have no assigned user/location and need to be updated\n" + f"\n".join([f"{machine.name}: {machine.vulns}" for machine in self.machines])
             else:
                 content = """
@@ -161,12 +164,11 @@ class Machine():
     @type.setter
     def type(self, t):
         self._type = t
-        
-
+    
 
 def get_snipe(endpoint):
     URL = f"https://jrcb-snipe-it.byu.edu/api/v1/{endpoint}"
-    HEADERS = {"Authorization":"Bearer " + SNIPE_TOKEN,"Content-Type":"application/json","Accept":"application/json"}
+    HEADERS = {"Authorization":"Bearer " + settings["SNIPE_TOKEN"],"Content-Type":"application/json","Accept":"application/json"}
     all_rows = []
     offset = 0
     while True:
@@ -217,7 +219,7 @@ def parse_snipe_users():
 
 def get_okta():
     URL = "https://ces-byulaw-admin.okta.com/api/v1/users"
-    HEADERS = {"Authorization":"SSWS " + OKTA_TOKEN,"Accept":"application/json"}
+    HEADERS = {"Authorization":"SSWS " + settings["OKTA_TOKEN"],"Accept":"application/json"}
     users = []
     while URL:
         r = requests.get(url = URL, headers = HEADERS)
@@ -244,15 +246,15 @@ def td_client():
     url = "https://api.threatdown.com"
 
     client_scope = ["read", "write", "execute"]
-    headers = {"accountid": TD_ACCOUNT}
-    client = BackendApplicationClient(client_id=TD_CLIENT_ID, scope=client_scope)
+    headers = {"accountid": settings["TD_ACCOUNT"]}
+    client = BackendApplicationClient(client_id=settings["TD_CLIENT_ID"], scope=client_scope)
     session = OAuth2Session(client=client, scope=client_scope)
     session.headers.update(headers)
     
     try:
         token = session.fetch_token(
             token_url=f"{url}/oauth2/token",
-            client_secret=TD_CLIENT_SECRET,
+            client_secret=settings["TD_CLIENT_SECRET"],
             scope=" ".join(client_scope)
         )
         return session
@@ -263,14 +265,14 @@ def get_vuln_reports():
     client = td_client()
     url = "https://api.threatdown.com"
     page_size = 2000
-    url = f"{url}/nebula/v1/reports/{VULN_REPORT_ID}"
+    url = f"{url}/nebula/v1/reports/{settings['VULN_REPORT_ID']}"
     
     HEADERS = {"content-type":"application/json",
                "authorization": f'Bearer {client.token["access_token"]}',
-               "accountid":TD_ACCOUNT}
+               "accountid":settings["TD_ACCOUNT"]}
     exp_url = "https://api.threatdown.com/nebula/v1/cve/export"
     exp_report = []
-    EXP_BODY = {
+    exp_body = {
         "format":"json",
         "download":True,
         "select":[{"field":"host_name","newField":"Name"},
@@ -281,7 +283,7 @@ def get_vuln_reports():
         "groups":[{"installation_date_after":"2000-01-01T12:00:00Z"},{"page_size":page_size}]
     }
 
-    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(EXP_BODY)).json()
+    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(exp_body)).json()
     return exp_report
 
 def parse_vulns():
@@ -310,10 +312,10 @@ def get_endpoint_reports(endpoints):
     
     HEADERS = {"content-type":"application/json",
                "authorization": f'Bearer {client.token["access_token"]}',
-               "accountid":TD_ACCOUNT}
+               "accountid":settings["TD_ACCOUNT"]}
     exp_url = "https://api.threatdown.com/nebula/v1/endpoints/export"
     exp_report = []
-    EXP_BODY = {
+    exp_body = {
         "format":"json",
         "download":True,
         "select":[{"field":"agent.host_name","newField":"hostname"},
@@ -321,7 +323,7 @@ def get_endpoint_reports(endpoints):
         "endpoints": [{"id":endpoint} for endpoint in endpoint_ids],
         "groups":[{"page_size":page_size}]
     }
-    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(EXP_BODY)).json()
+    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(exp_body)).json()
     cleaned = {}
     for endpoint in exp_report:
         name = endpoint["hostname"]
@@ -359,7 +361,7 @@ def get_falcon():
         "isLive":False
     }
     HEADERS = {
-        "Authorization":f"Bearer {FALCON_TOKEN}",
+        "Authorization":f"Bearer {settings['FALCON_TOKEN']}",
         "Content-Type":"application/json",
         "Accept":"application/json"
     }
@@ -403,9 +405,9 @@ def mach_to_user(machines, users):
             if u_score >= 0.8:
                 name_indexed_users[best_user].machines = mach
             else:
-                name_indexed_users[CATCHALL_USER].machines = mach
+                name_indexed_users[settings["CATCHALL_USER"]].machines = mach
         else:
-            name_indexed_users[CATCHALL_USER].machines = mach
+            name_indexed_users[settings["CATCHALL_USER"]].machines = mach
     users_with_vulns = []
     for user in users:
         if len(user.machines) > 0:
@@ -417,9 +419,9 @@ def users_to_email(users, profiles):
         best_name, n_score = find_match(user.name, profiles.keys())
         if n_score >= 0.8:
             user.email = profiles[best_name]["email"]
-        elif user.name == CATCHALL_USER:
+        elif user.name == settings["CATCHALL_USER"]:
             catchall = user
-            user.email = CATCHALL_EMAIL
+            user.email = settings["CATCHALL_EMAIL"]
     users_with_emails = []
     for user in users:
         if user.email:
@@ -442,12 +444,12 @@ def send_emails(users):
             msg = EmailMessage()
             msg.set_content(f"{email}")
             msg['Subject'] = "Security Updates"
-            msg['From'] = "helpdesk@law.byu.edu"
-            msg['To'] = "kenneth.page@law.byu.edu"
+            msg['From'] = settings["CATCHALL_USER"]
+            msg['To'] = settings["SENDER_EMAIL"]
 
             with smtplib.SMTP("smtp.gmail.com", 587) as s:
                 s.starttls()
-                s.login("kenneth.page@law.byu.edu", GOOGLE_PSSWD)
+                s.login(settings["SENDER_EMAIL"], settings["GOOGLE_PSSWD"])
                 s.send_message(msg)
                 s.quit()
     df = pandas.DataFrame(rows)
@@ -459,12 +461,12 @@ def send_emails(users):
         subtype='csv',
         filename='vulnerabilities_masterlist.csv')
     msg['Subject'] = "Security Updates"
-    msg['From'] = "helpdesk@law.byu.edu"
-    msg['To'] = "kenneth.page@law.byu.edu"
+    msg['From'] = settings["CATCHALL_USER"]
+    msg['To'] = settings["CATCHALL_USER"]
 
     with smtplib.SMTP("smtp.gmail.com", 587) as s:
         s.starttls()
-        s.login("kenneth.page@law.byu.edu", GOOGLE_PSSWD)
+        s.login(settings["SENDER_EMAIL"], settings["GOOGLE_PSSWD"])
         s.send_message(msg)
         s.quit()
 
