@@ -61,15 +61,18 @@ class User():
                 content = f"Hi HelpDesk!\nThe following assets have no assigned user/location and need to be updated\n" + f"\n".join([f"{machine.name}: {machine.vulns}" for machine in self.machines])
             else:
                 content = """
-Dear {0}, {1}
-To protect you and important assets, we've emailed you because the Law School security systems have found app and system vulnerabilities on your device(s).
-To keep in accordance with Law School security policy, please schedule a time with us for this next week to run necessary updates. These updates normally take only 10-15 minutes, and we can come by to run them (e.g., for your desktop tower or laptop) or you can bring your computer to the Help Desk (e.g., for your laptop).
+Dear {0},
+
+We've emailed you to let you know that our Law School security systems have noticed a few areas on your device(s) that could use some updates or adjustments to stay secure.
+
+Please schedule a time with us for this next week to run necessary updates. These updates normally take only 10-15 minutes, and we can come by to run them (e.g., for your desktop tower or laptop) or you can bring your computer to the Help Desk (e.g., for your laptop).
 
 Thank you for helping us keep you and BYU Law School's systems safe!
 
 Best regards,
 The Help Desk Team
-""".format(self.name.split()[0].title(), self.email)
+(801) 422-3884
+""".format(self.name.split()[0].title())
             return content
         return False
 
