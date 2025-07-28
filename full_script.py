@@ -168,7 +168,6 @@ class Machine():
     def type(self, t):
         self._type = t
     
-
 def get_snipe(endpoint):
     URL = f"https://jrcb-snipe-it.byu.edu/api/v1/{endpoint}"
     HEADERS = {"Authorization":"Bearer " + settings["SNIPE_TOKEN"],"Content-Type":"application/json","Accept":"application/json"}
@@ -369,6 +368,7 @@ def get_falcon():
         "Accept":"application/json"
     }
     response = requests.post(URL, headers=HEADERS, data=json.dumps(payload)).json()
+    print(response)
     return response
 
 def parse_falcon():
@@ -433,8 +433,8 @@ def users_to_email(users, profiles):
             catchall.machines = user.machines
     return users_with_emails
 
-def send_emails(users):
-    rows = []
+def send_emails(users=[], r=None):
+    rows = r if r else []
     for user in users:
         for machine in user.machines:
             rows.append({
@@ -442,13 +442,13 @@ def send_emails(users):
                 "machine": machine.name,
                 "vulns": ', '.join(machine.vulns) if machine.vulns else ''
             })
-        email = user.format_email()
-        if email:
+        message = user.format_email()
+        if message:
             msg = EmailMessage()
-            msg.set_content(f"{email}")
+            msg.set_content(f"{message}")
             msg['Subject'] = "Security Updates"
             msg['From'] = settings["CATCHALL_USER"]
-            msg['To'] = settings["SENDER_EMAIL"]
+            msg['To'] = user.email
 
             with smtplib.SMTP("smtp.gmail.com", 587) as s:
                 s.starttls()
@@ -465,7 +465,7 @@ def send_emails(users):
         filename='vulnerabilities_masterlist.csv')
     msg['Subject'] = "Security Updates"
     msg['From'] = settings["CATCHALL_USER"]
-    msg['To'] = settings["CATCHALL_USER"]
+    msg['To'] = settings["CATCHALL_EMAIL"]
 
     with smtplib.SMTP("smtp.gmail.com", 587) as s:
         s.starttls()
@@ -512,6 +512,7 @@ def main():
     else:
         internal = parse_falcon()
         # List of Machines
+        send_emails(r=[[mach.name, mach.count] for mach in internal])
 
 if __name__ == "__main__":
     main()
