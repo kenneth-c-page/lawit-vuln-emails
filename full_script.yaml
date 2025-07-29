@@ -64,19 +64,15 @@ threatdown:
 vulnerability: The device labeled {0} has the following vulnerabilities that need to be updated or removed:\n{1}
 
 email body: |
-  Hi {0}!
+  Dear ____,
 
-  In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
+  To protect you and important assets, we've emailed you because the Law School security systems have found system and app vulnerabilities on your device(s).
+  Per Law School security policy, please schedule a time for this next week to run necessary updates. These updates normally take only 10-15 minutes, and we can come by to run them (e.g., for your desktop tower or laptop) or you can bring your computer to the Help Desk (e.g., for your laptop).
 
-  {1}
+  Thank you for helping us keep you and BYU Law School's systems safe!
 
-  If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
-
-  If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
-
-  Thank you!
   Best regards,
-  Kenneth Page
+  The Help Desk Team
 
 secrets: # run `settings --secrets --script full_script.py` to set these values
   snipe.token: snipe/token
