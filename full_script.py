@@ -2,205 +2,180 @@ import requests
 import json
 import re
 import smtplib
-import time
 import datetime
+import pandas
+import io
+from devopsdriver import Settings
 from difflib import SequenceMatcher
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import BackendApplicationClient
 from email.message import EmailMessage
 from email.mime.text import MIMEText
 
-class Assignee():
-    def __init__(self, cat=None, machines=None, name=None, email=None, loc=None):
-        self.cat = cat
-        self.machines = machines if machines is not None else []
-        self.name = name
-        self.email = email
-        self.loc = loc
+settings = Settings(__file__)
 
-    def set_type(self, cat):
-        if type(cat) == str:
-            self.cat = cat
+class User():
+    def __init__(self, machines=None, name=None, email=None, loc=None):
+        self._machines = [m for m in machines] if machines else []
+        self._name = name.upper() if name else name
+        self._email = email.upper() if email else email
+        self._loc = loc.upper() if loc else loc
+
+    def __str__(self):
+        return f"{self._name} | Email: {self._email}, Room: {self._loc}"
+    
+    @property
+    def machines(self):
+        return self._machines
+    @machines.setter
+    def machines(self, m):
+        if type(m) == list:
+            self._machines += m
         else:
-            raise TypeError(f"{cat} is NOT a string.")
-        
-    def set_machines(self, machines):
-        if type(machines) == list:
-            self.machines = machines
-        else:
-            self.machines = [machines]
-    
-    def add_machines(self, machines):
-        if type(machines) == list:
-            self.machines += machines
-        else:
-            self.machines.append(machines)
-    
-    def set_location(self, loc):
-        self.loc = loc
-    
-    def set_name(self, name):
-        self.name = f"{name}"
-    
-    def set_email(self, email):
-        self.email = f"{email}"
-    
-    def get_type(self):
-        return self.cat
-    
-    def get_name(self):
-        return self.name
-    
-    def get_machines(self):
-        return self.machines
-    
-    def get_email(self):
-        return self.email
-    
-    def get_location(self):
-        return self.loc
+            self._machines.append(m)
+
+    @property
+    def name(self):
+        return self._name
+    @name.setter
+    def name(self, n):
+        self._name = n.upper() if n else n
+
+    @property
+    def email(self):
+        return self._email
+    @email.setter
+    def email(self, e):
+        self._email = e.upper() if e else e
+
+    @property
+    def loc(self):
+        return self._loc
+    @loc.setter
+    def loc(self, l):
+        self._loc = l.upper() if l else l
     
     def format_email(self):
         if self.machines:
-            formatted_vulnerabilities = []
-            for machine in self.machines:
-                sanitized = ""
-                if len(machine.get_vulns()) > 0:
-                    for vuln in machine.get_vulns():
-                        if "Adobe" in vuln:
-                            if not "Adobe" in sanitized:
-                                sanitized += f"\n\t- Adobe Products"
-                        else:
-                            sanitized += f"\n\t- {vuln}"
-                    correct_identifier = "labeled " + machine.tag if machine.tag else machine.name
-                    vulns = f"The device {correct_identifier} has the following vulnerabilities that need to be updated or removed:\n\t- A Windows/Mac system update if available{sanitized}"
-                    formatted_vulnerabilities.append(vulns)
-                else:
-                    pass
-            content = """
-Hi {0}!
+            if self.name == settings["CATCHALL_USER"]:
+                content = f"Hi HelpDesk!\nThe following assets have no assigned user/location and need to be updated\n" + f"\n".join([f"{machine.name}: {machine.vulns}" for machine in self.machines])
+            else:
+                content = """
+Dear {0},
 
-In an effort to protect you and important assets, we are emailing you because your law school computer(s) has/have been found with the following vulnerabilities:
+We've emailed you to let you know that our Law School security systems have noticed a few areas on your device(s) that could use some updates or adjustments to stay secure.
 
-{1}
+Please schedule a time with us for this next week to run necessary updates. These updates normally take only 10-15 minutes, and we can come by to run them (e.g., for your desktop tower or laptop) or you can bring your computer to the Help Desk (e.g., for your laptop).
 
-If you use these programs, please update them at your earliest convenience. However, if you do not use these programs, please remove them from your device.
+Thank you for helping us keep you and BYU Law School's systems safe!
 
-If you have any questions or need help with removing these vulnerabilities, please feel free to email, call, or visit us at the Help Desk.
-
-Thank you!
 Best regards,
-Kenneth Page
-
-NOTICE:
-We are testing a new automated email to make these messages more practical for you and make this process a better experience.
-If you suspect that this email isn't intended for you (i.e., it is addressed to someone else, ALL the devices listed are not yours, etc.), or you can't find the listed devices, let us know so we can better help secure your devices and improve these emails.
-        """.format(self.name.split()[0].title(), f"\n".join(formatted_vulnerabilities))
-            return content if len(formatted_vulnerabilities) > 0 else False
+The Help Desk Team
+(801) 422-3884
+""".format(self.name.split()[0].title())
+            return content
+        return False
 
 class Machine():
-    def __init__(self, name=None, users=None, loc=None, tag=None, vulns=None, alias=None, falcon_count=None, assignee=None):
-        self.users = users if users is not None else []
-        self.loc = loc
-        self.tag = tag
-        self.assignee = assignee
-        self.vulns = vulns if vulns is not None else []
-        self.name = name
-        self.alias = alias
-        self.assigned = True if self.users else False
-        self.falcon_count = falcon_count if falcon_count is not None else 0
+    def __init__(
+            self,
+            serial_num=None,
+            tag=None,
+            loc=None,
+            alias=None,
+            name=None,
+            falcon_count=None,
+            user=None,
+            vulns=None,
+            type=None
+        ):
+        self._serial = serial_num.upper() if serial_num else serial_num
+        self._tag = tag.upper() if tag else tag
+        self._loc = loc.upper() if loc else loc
+        self._alias = alias.upper() if alias else alias
+        self._name = name.upper() if name else name
+        self._count = falcon_count if falcon_count else 0
+        self._user = user.upper() if user else user
+        self._vulns = [v for v in vulns] if vulns else []
+        self._type = type
+    
+    def __str__(self):
+        return f"The {self.type}, {self.tag}/{self.name}, at {self.loc} has {self.vulns}"
 
-    def set_users(self, user_list):
-        if type(user_list) == list:
-            self.users = user_list
+    @property
+    def serial(self):
+        return self._serial
+    @serial.setter
+    def serial(self, num):
+        self._serial = num.upper() if num else num
+    
+    @property
+    def tag(self):
+        return self._tag
+    @tag.setter
+    def tag(self, tag):
+        self._tag = tag.upper() if tag else tag
+
+    @property
+    def loc(self):
+        return self._loc
+    @loc.setter
+    def loc(self, location):
+        self._loc = location.upper() if location else location
+    
+    @property
+    def alias(self):
+        return self._alias
+    @alias.setter
+    def alias(self, alias):
+        self._alias = alias.upper() if alias else alias
+    
+    @property
+    def name(self):
+        return self._name
+    @name.setter
+    def name(self, name):
+        self._name = name.upper() if name else name
+    
+    @property
+    def count(self):
+        return self._count
+    @count.setter
+    def count(self, count):
+        self._count = count
+    
+    @property
+    def user(self):
+        return self._user
+    @user.setter
+    def user(self, u):
+        self._user = u.upper() if u else u
+
+    @property
+    def vulns(self):
+        return self._vulns
+    @vulns.setter
+    def vulns(self, v):
+        if type(v) == list:
+            self._vulns += v
         else:
-            self.users = [user_list]
-    
-    def add_users(self, user_list):
-        try:
-            if type(user_list) == list:
-                self.users += user_list
-            else:
-                self.users.append(user_list)
-        except:
-            self.users = user_list if type(user_list) == list else [user_list]
-    
-    def set_assignee(self, assgn):
-        self.assignee = assgn
+            self._vulns.append(v)
 
-    def get_assignee(self):
-        return self.assignee if self.assignee else None
-    
-    def set_vulns(self, vuln_list):
-        if type(vuln_list) == list:
-            self.vulns = vuln_list
-        else:
-            self.vulns = [vuln_list]
-    
-    def add_vulns(self, vuln_list):
-        try:
-            if type(vuln_list) == list:
-                self.vulns += vuln_list
-            else:
-                self.vulns.append(vuln_list)
-        except:
-            self.vulns = vuln_list if type(vuln_list) == list else [vuln_list]
-    
-    def set_name(self, name):
-        self.name = name
-        
-    def set_tag(self, tag):
-        self.tag = tag
-    
-    def set_loc(self, loc):
-        self.loc = loc
-
-    def set_alias(self, alias):
-        self.alias = alias
-    
-    def set_falcon_count(self, count):
-        self.falcon_count = count
-
-    def get_users(self):
-        return self.users
-    
-    def get_location(self):
-        return self.loc
-    
-    def get_vulns(self):
-        return self.vulns
-    
-    def get_tag(self):
-        return self.tag
-    
-    def get_alias(self):
-        return self.alias
-    
-    def get_name(self):
-        return self.name
-    
-    def assgin(self):
-        self.assign = True
-    
-    def unassign(self):
-        self.assign = False
-    
-    def get_assignment(self):
-        return self.users
-    
-    def get_falcon_count(self):
-        return self.falcon_count
+    @property
+    def type(self):
+        return self._type
+    @type.setter
+    def type(self, t):
+        self._type = t
     
 def get_snipe(endpoint):
     URL = f"https://jrcb-snipe-it.byu.edu/api/v1/{endpoint}"
-    api_token = ""
-    HEADERS = {"Authorization":"Bearer " + api_token,"Content-Type":"application/json","Accept":"application/json"}
+    HEADERS = {"Authorization":"Bearer " + settings["SNIPE_TOKEN"],"Content-Type":"application/json","Accept":"application/json"}
     all_rows = []
     offset = 0
     while True:
         new_url = f"{URL}?limit=500&offset={offset}"
         req = requests.get(url = new_url, headers = HEADERS)
-        print(req)
         response = req.json()
         total = response.get("total", 0)
         rows = response.get("rows", [])
@@ -214,18 +189,21 @@ def parse_snipe_assets():
     assets = get_snipe("hardware")
     mapping = []
     for asset in assets:
-        assignee = asset["assigned_to"]
-        device = asset["name"]
         if not asset["category"]["name"] in ["Printer", "Monitors"]:
-            new_mach = Machine(name=device, users=assignee, tag=asset["asset_tag"], assignee=asset["assigned_to"])
-
-            if (asset["location"] or asset["rtd_location"]):
-                try:
-                    new_mach.set_loc(asset["location"]["name"])
-                except:
-                    new_mach.set_loc(asset["rtd_location"]["name"])
-            elif asset["status_label"]["status_type"] == "pending":
-                new_mach.set_loc(f"{re.findall(r'[0-9a-zA-Z]+', device)[0]} JRCB")
+            m_user = asset["assigned_to"]["name"] if asset["assigned_to"] and asset["assigned_to"]["type"] == "user" else None
+            new_mach = Machine(
+                serial_num=asset["serial"],
+                name=asset["name"],
+                tag=asset["asset_tag"],
+                type=asset["category"]["name"],
+                user=m_user
+            )
+            if asset["location"]:
+                new_mach.loc = asset['location']['name']
+            elif asset["rtd_location"]:
+                new_mach.loc = asset['rtd_location']['name']
+            else:
+                new_mach.loc = f"{re.findall(r'[0-9a-zA-Z]+', new_mach.name)[0]} JRCB"
             mapping.append(new_mach)
     return mapping
 
@@ -233,8 +211,9 @@ def parse_snipe_users():
     users = get_snipe("users")
     mapping = []
     for user in users:
+        new_user = User(name=user["name"])
         try:
-            new_user = Assignee(name=user["name"], loc=user["location"]["name"])
+            new_user.loc=user["location"]["name"]
             mapping.append(new_user)
         except:
             pass
@@ -242,18 +221,15 @@ def parse_snipe_users():
 
 def get_okta():
     URL = "https://ces-byulaw-admin.okta.com/api/v1/users"
-    api_token = ""
-    HEADERS = {"Authorization":"SSWS " + api_token,"Accept":"application/json"}
+    HEADERS = {"Authorization":"SSWS " + settings["OKTA_TOKEN"],"Accept":"application/json"}
     users = []
     while URL:
         r = requests.get(url = URL, headers = HEADERS)
         users += r.json()
 
         link_header = r.headers["link"]
-        if link_header:# and 'rel="next"' in link_header:
-            # match = re.findall(r'<([^>]+)>; rel="next"', link_header)
+        if link_header:
             match = r.links.get('next', {}).get('url')
-            # URL = match[0] if match else None
             URL = match if match else None
         else:
             URL = None
@@ -266,75 +242,59 @@ def parse_okta():
         profile = user['profile']
         if not "student" in "".join([pos for pos in profile['position']]):
             mapping[f'{profile["firstName"]} {profile["lastName"]}'] = {"login":profile["login"], "email":profile["email"]}
-        # mapping[f"{user["displayName"]}"] = {"login":profile["login"], "email":profile["email"]}
     return mapping
 
-def get_threatdown():
-    # Replace with your actual credentials from ThreatDown OneView
-    ACCOUNT_ID = ""
-    CLIENT_ID = ""
-    CLIENT_SECRET = ""
+def td_client():
+    url = "https://api.threatdown.com"
 
-    # Base URL for ThreatDown API
-    BASE_URL = "https://api.threatdown.com"
-    REPORT_ID = ""
-
-    def get_oauth_client(client_id, client_secret, account_id):
-        """Authenticate and return an OAuth2 session client."""
-        client_scope = ["read", "write", "execute"]  # Adjust scopes based on API requirements
-        headers = {"accountid": account_id}
-        
-        client = BackendApplicationClient(client_id=client_id, scope=client_scope)
-        session = OAuth2Session(client=client, scope=client_scope)
-        session.headers.update(headers)
-        
-        try:
-            token = session.fetch_token(
-                token_url=f"{BASE_URL}/oauth2/token",
-                client_secret=client_secret,
-                scope=" ".join(client_scope)
-            )
-            return session
-        except Exception as e:
-            raise
-
-    def get_all_reports(client):
-        """Fetch all reports with pagination, handling rate limits."""
-        reports = []
-        next_cursor = ""
-        page_size = 1000  # Adjust based on API limits or documentation
-        url = f"{BASE_URL}/nebula/v1/reports/{REPORT_ID}"
-        token = client.fetch_token(
-                token_url=f"{BASE_URL}/oauth2/token",
-                client_secret=CLIENT_SECRET,
-                scope=" ".join(["read", "write", "execute"]))
-        HEADERS = {"content-type":"application/json","authorization": f'Bearer {token["access_token"]}',"accountid":ACCOUNT_ID}
-
-        exp_url = "https://api.threatdown.com/nebula/v1/cve/export"
-        exp_report = []
-        # while True:
-        EXP_BODY = {
-            "format":"json",
-            "download":True,
-            "select":[{"field":"host_name","newField":"Name"},
-                    {"field":"product","newField":"Application"},
-                    {"field":"machine_id","newField":"Machine_ID"},
-                    {"field":"alias","newField":"Alias"},
-                    {"field":"fully_qualified_host_name","newField":"Full_Hostname"}],
-            "groups":[{"installation_date_after":"2000-01-01T12:00:00Z"},{"page_size":2000}]
-        }
-
-        exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(EXP_BODY)).json()
-        return exp_report
+    client_scope = ["read", "write", "execute"]
+    headers = {"accountid": settings["TD_ACCOUNT"]}
+    client = BackendApplicationClient(client_id=settings["TD_CLIENT_ID"], scope=client_scope)
+    session = OAuth2Session(client=client, scope=client_scope)
+    session.headers.update(headers)
     
-    return get_all_reports(get_oauth_client(CLIENT_ID, CLIENT_SECRET, ACCOUNT_ID))
+    try:
+        token = session.fetch_token(
+            token_url=f"{url}/oauth2/token",
+            client_secret=settings["TD_CLIENT_SECRET"],
+            scope=" ".join(client_scope)
+        )
+        return session
+    except Exception as e:
+        raise
 
-def parse_threatdown():
-    vulns = get_threatdown()
+def get_vuln_reports():
+    client = td_client()
+    url = "https://api.threatdown.com"
+    page_size = 2000
+    url = f"{url}/nebula/v1/reports/{settings['VULN_REPORT_ID']}"
+    
+    HEADERS = {"content-type":"application/json",
+               "authorization": f'Bearer {client.token["access_token"]}',
+               "accountid":settings["TD_ACCOUNT"]}
+    exp_url = "https://api.threatdown.com/nebula/v1/cve/export"
+    exp_report = []
+    exp_body = {
+        "format":"json",
+        "download":True,
+        "select":[{"field":"host_name","newField":"Name"},
+                {"field":"product","newField":"Application"},
+                {"field":"machine_id","newField":"Machine_ID"},
+                {"field":"alias","newField":"Alias"},
+                {"field":"fully_qualified_host_name","newField":"Full_Hostname"}],
+        "groups":[{"installation_date_after":"2000-01-01T12:00:00Z"},{"page_size":page_size}]
+    }
+
+    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(exp_body)).json()
+    return exp_report
+
+def parse_vulns():
+    vulns = get_vuln_reports()
     mapping = {}
     for vuln in vulns:
         name = vuln["Name"]
         app = vuln["Application"]
+        id = vuln["Machine_ID"]
         try:
             alias = vuln["Alias"]
         except:
@@ -342,13 +302,60 @@ def parse_threatdown():
         try:
             mapping[name.upper()]["apps"] += [app] if not app in mapping[name]["apps"] else []
         except:
-            mapping[name.upper()] = {"apps":[app],"alias":alias.upper() if alias else None}
+            mapping[name.upper()] = {"apps":[app],"alias":alias.upper() if alias else None,"id":id}
     return mapping
 
+def get_endpoint_reports(endpoints):
+    client = td_client()
+    endpoint_ids = [endpoints[endpoint]["id"] for endpoint in endpoints]
+    url = "https://api.threatdown.com"
+    page_size = 2000
+    url = f"{url}/nebula/v1/endpoints/export"
+    
+    HEADERS = {"content-type":"application/json",
+               "authorization": f'Bearer {client.token["access_token"]}',
+               "accountid":settings["TD_ACCOUNT"]}
+    exp_url = "https://api.threatdown.com/nebula/v1/endpoints/export"
+    exp_report = []
+    exp_body = {
+        "format":"json",
+        "download":True,
+        "select":[{"field":"agent.host_name","newField":"hostname"},
+                  {"field":"agent.serial_number","newField":"serial"}],
+        "endpoints": [{"id":endpoint} for endpoint in endpoint_ids],
+        "groups":[{"page_size":page_size}]
+    }
+    exp_report += client.post(exp_url, headers = HEADERS, data=json.dumps(exp_body)).json()
+    cleaned = {}
+    for endpoint in exp_report:
+        name = endpoint["hostname"]
+        try:
+            serial = endpoint["serial"]
+        except:
+            serial = "CHECK ME"
+        if name in cleaned.keys():
+            if serial not in cleaned[name]:
+                cleaned[name] += serial
+        else:
+            cleaned[name] = [serial]
+    return cleaned
+
+def parse_endpoints(vulns):
+    endpoints = get_endpoint_reports(vulns)
+    
+    for vuln in vulns:
+        if vuln in endpoints.keys():
+            vulns[vuln]["serial"] = endpoints[vuln][0]
+        else:
+            vulns[vuln]["serial"] = None
+    return vulns
+
 def get_falcon():
-    falcon_token = ""
     URL = "https://oit-humio.byu.edu/api/v1/repositories/law_oit_shared/query"
-    query = '"remediation_actions": "Microsoft" and "hostname": not "JRCB*" and "hostname": not "PROX" | groupBy(hostname, limit="max") | sort(_count)'
+    query = '' \
+    '"remediation_actions": "Microsoft" and ' \
+    '"hostname": not "JRCB*" and ' \
+    '"hostname": not "PROX" | groupBy(hostname, limit="max") | sort(_count)'
     payload = {
         "queryString":query,
         "start":"31days",
@@ -356,11 +363,12 @@ def get_falcon():
         "isLive":False
     }
     HEADERS = {
-        "Authorization":f"Bearer {falcon_token}",
+        "Authorization":f"Bearer {settings['FALCON_TOKEN']}",
         "Content-Type":"application/json",
         "Accept":"application/json"
     }
     response = requests.post(URL, headers=HEADERS, data=json.dumps(payload)).json()
+    print(response)
     return response
 
 def parse_falcon():
@@ -368,111 +376,109 @@ def parse_falcon():
     mapping = [Machine(name=asset["hostname"],falcon_count=int(asset["_count"])) for asset in assets]
     return mapping
 
-def falcon_email():
-    pass
-
-def add_okta_emails(mapping, users):
-    for user in users:
-        name = user.get_name()
-        match, score = find_match(name, mapping.keys())
-        if score >= 0.8:
-            user.set_email(mapping[match]["email"])
-
-def add_vulns(vuln_map, machines):
-    unassigned_machines = []
-    unused_vulns = [key for key in vuln_map.keys()]
-    mach_by_name = {mach.get_name().upper():mach for mach in machines}
-    v_by_name = {v:vuln_map[v] for v in vuln_map}
-    v_by_alias = {}
-    alias_to_name = {}
-    for v in vuln_map:
-        a = vuln_map[v]["alias"]
-        if a:
-            v_by_alias[a] = vuln_map[v]
-            alias_to_name[a] = v
-    for mach in machines:
-        name = mach.get_name().upper()
-        try:
-            mach.add_vulns(v_by_name[name]["apps"])
-            del v_by_name[name]
-            del mach_by_name[name]
-        except:
-            try:
-                mach.add_vulns(v_by_alias[name.upper()]["apps"])
-                del v_by_alias[name]
-                try:
-                    del v_by_name[alias_to_name[name]]
-                except:
-                    pass
-                try:        
-                    del mach_by_name[alias_to_name[name]]
-                except:
-                    pass
-            except:
-                unassigned_machines.append(mach)
-
-    catchall = Assignee(name="HelpDesk", email="", loc="459 JRCB", machines = [Machine(name, vulns=v_by_name[name]["apps"]) for name in v_by_name.keys()] + [Machine(alias, vulns=v_by_alias[alias]["apps"]) for alias in v_by_alias.keys()])
-    return catchall
-
-def map_machines(users, machine_list):
-    no_loc_u = []
-    no_loc_m = []
-    re_pattern = r"([0-9]+[a-zA-Z]*\s[a-zA-Z]+)"
-
-    user_by_names = {user.get_name().upper():user for user in users}
-    user_by_loc = {re.findall(re_pattern, user.get_location())[0].upper():user for user in users}
-    machine_mapping = {machine.get_tag():{"user":machine.get_assignment()["name"] if machine.get_assignment() else None, "loc":re.findall(re_pattern, machine.get_location())[0] if machine.get_location() else None, "mach":machine} for machine in machine_list}
-
-    for m in machine_mapping:
-        mach = machine_mapping[m]
-        m_loc = mach["loc"]
-        m_user = mach["user"]
-        asset = mach["mach"]
-
-        if m_user:
-            best_user, u_score = find_match(m_user, user_by_names)
-            if u_score >= 0.8:
-                user_by_names[best_user].add_machines(asset)
-            elif m_loc:
-                best_loc, l_score = find_match(m_loc, user_by_loc.keys())
-
-                if l_score >= 0.8:
-                    user_by_loc[best_loc].add_machines(asset)
-                else:
-                    no_loc_m.append(asset)
-        elif m_loc:
-            best_loc, l_score = find_match(m_loc, user_by_loc.keys())
-            if l_score >= 0.8:
-                user_by_loc[best_loc].add_machines(asset)
-            else:
-                no_loc_m.append(asset)
+def vuln_to_mach(vulns, machines):
+    serial_indexed_machines = {machine.serial:machine for machine in machines}
+    name_indexed_machines = {machine.name:machine for machine in machines}
+    for machine in machines:
+        if not machine.alias in name_indexed_machines:
+            name_indexed_machines[machine.alias] = machine
+    for endpoint in vulns:
+        serial = vulns[endpoint]["serial"]
+        if serial in serial_indexed_machines.keys():
+            machine = serial_indexed_machines[serial]
+            machine.vulns = [app for app in vulns[endpoint]["apps"]]
+        elif endpoint in name_indexed_machines.keys():
+            machine = name_indexed_machines[endpoint]
+            machine.vulns = [app for app in vulns[endpoint]["apps"]]
         else:
-            no_loc_m.append(asset)
+            machines += [Machine(name=endpoint, vulns=vulns[endpoint]["apps"])]
+    vuln_machines = []
+    for mach in machines:
+        if len(mach.vulns) > 0:
+            vuln_machines.append(mach)
+    return vuln_machines
 
-    users.append(Assignee(name="459 JRCB", cat="loc", machines=[mach for mach in no_loc_m], loc="459 JRCB", email=""))
-            
-def send_emails(users):
-    with open("vuln2.0", "w") as f:
-        f.write("")
+def mach_to_user(machines, users):
+    loc_pattern = r"([0-9]+[a-zA-Z]*\s[a-zA-Z]+)"
+    loc_indexed_users = {re.findall(loc_pattern, user.loc)[0]:user for user in users}
+    name_indexed_users = {user.name:user for user in users}
+    for mach in machines:
+        if mach.user:
+            best_user, u_score = find_match(mach.user, name_indexed_users.keys())
+            if u_score >= 0.8:
+                name_indexed_users[best_user].machines = mach
+            else:
+                name_indexed_users[settings["CATCHALL_USER"]].machines = mach
+        else:
+            name_indexed_users[settings["CATCHALL_USER"]].machines = mach
+    users_with_vulns = []
     for user in users:
-        email = user.format_email()
-        # if email: #because it returns false if the machine doesn't have any vulnerabilities
-        #     with open("vuln2.0", "a") as f:
-        #         f.write(f"{user.name} : {user.email}\n")
-        #         f.write(f"{email}\n")
-        msg = EmailMessage()
-        msg.set_content(f"{email}")
-        msg['Subject'] = "test"
-        msg['From'] = ""
-        # msg['To'] = user.get_email()
-        msg['To'] = user.get_email() if user.get_email() else ""
+        if len(user.machines) > 0:
+            users_with_vulns.append(user)
+    return users_with_vulns
 
-        with smtplib.SMTP("smtp.gmail.com", 587) as s:
-            s.starttls()
-            s.login("...", "...")
-            s.send_message(msg)
-            s.quit()
-    pass
+def users_to_email(users, profiles):
+    for user in users:
+        best_name, n_score = find_match(user.name, profiles.keys())
+        if n_score >= 0.8:
+            user.email = profiles[best_name]["email"]
+        elif user.name == settings["CATCHALL_USER"]:
+            catchall = user
+            user.email = settings["CATCHALL_EMAIL"]
+    users_with_emails = []
+    for user in users:
+        if user.email:
+            users_with_emails.append(user)
+        else:
+            catchall.machines = user.machines
+    return users_with_emails
+
+def send_emails(users=[], r=None):
+    rows = r if r else []
+    for user in users:
+        for machine in user.machines:
+            rows.append({
+                "user": user.name,
+                "machine": machine.name,
+                "vulns": ', '.join(machine.vulns) if machine.vulns else ''
+            })
+        message = user.format_email()
+        if message:
+            msg = EmailMessage()
+            msg.set_content(f"{message}")
+            msg['Subject'] = "Security Updates"
+            msg['From'] = settings["CATCHALL_EMAIL"]
+            msg['To'] = user.email
+
+            with smtplib.SMTP("smtp.gmail.com", 587) as s:
+                s.starttls()
+                s.login(settings["SENDER_EMAIL"], settings["GOOGLE_PSSWD"])
+                s.send_message(msg)
+                s.quit()
+    df = pandas.DataFrame(rows)
+    msg = EmailMessage()
+    master_csv = get_csv_file(df)
+    msg.add_attachment(
+        master_csv.read(),
+        maintype='text',
+        subtype='csv',
+        filename='vulnerabilities_masterlist.csv')
+    msg['Subject'] = "Security Updates"
+    msg['From'] = settings["CATCHALL_EMAIL"]
+    msg['To'] = ["CATCHALL_EMAIL"]
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as s:
+        s.starttls()
+        s.login(settings["SENDER_EMAIL"], settings["GOOGLE_PSSWD"])
+        s.send_message(msg)
+        s.quit()
+
+def get_csv_file(df: pandas.DataFrame) -> io.StringIO:
+    print(df)
+    buffer = io.BytesIO()
+    buffer.write(df.to_csv(index=False).encode('utf-8'))
+    buffer.seek(0)
+    return buffer
 
 def compare_names(n1, n2):
     score = SequenceMatcher(None, n1.upper(), n2.upper()).ratio()
@@ -489,23 +495,24 @@ def find_match(name, names):
     return best_match, best_score
 
 def main():
-    settings = Settings(__file__).key("secrets").cli("cli").env("env")
     month = int(datetime.datetime.now().month)
-    users = parse_snipe_users()
     if month % 2 == 1:
         assets = parse_snipe_assets()
-        users_to_emails = parse_okta()
-        add_okta_emails(users_to_emails, users)
-        vulns = parse_threatdown()
-        unused_vulns = add_vulns(vulns, assets)
-        users.append(unused_vulns)
-        map_machines(users, assets)
-        send_emails(users)
+        users = parse_snipe_users()
+        profiles = parse_okta()
+        # First Last: {login: addr, email: addr}
+        vulns = parse_vulns()
+        # Machine: {apps: vulns, alias: name, id: machine_id}
+        endpoints = parse_endpoints(vulns)
+        # Machine: {apps: vulns, alias: name, id: machine_id, serial: serial_num}
+        vuln_machs = vuln_to_mach(endpoints, assets)
+        vuln_users = mach_to_user(vuln_machs, users)
+        emails = users_to_email(vuln_users, profiles)
+        send_emails(emails)
     else:
-        assets = parse_falcon()
-        vulns = parse_threatdown()
-        add_vulns(vulns, assets)
-        falcon_email() # DEFINE
+        internal = parse_falcon()
+        # List of Machines
+        send_emails(r=[[mach.name, mach.count] for mach in internal])
 
 if __name__ == "__main__":
     main()
