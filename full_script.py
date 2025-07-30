@@ -465,7 +465,7 @@ def send_emails(users=[], r=None):
         filename='vulnerabilities_masterlist.csv')
     msg['Subject'] = "Security Updates"
     msg['From'] = settings["CATCHALL_EMAIL"]
-    msg['To'] = ["CATCHALL_EMAIL"]
+    msg['To'] = settings["CATCHALL_EMAIL"]
 
     with smtplib.SMTP("smtp.gmail.com", 587) as s:
         s.starttls()
