@@ -448,7 +448,7 @@ def send_emails(users=[], r=None):
             msg.set_content(f"{message}")
             msg['Subject'] = "Security Updates"
             msg['From'] = settings["CATCHALL_EMAIL"]
-            msg['To'] = user.email
+            msg['To'] = settings["SENDER_EMAIL"] # user.email
 
             with smtplib.SMTP("smtp.gmail.com", 587) as s:
                 s.starttls()
