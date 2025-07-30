@@ -496,7 +496,7 @@ def find_match(name, names):
 
 def main():
     month = int(datetime.datetime.now().month)
-    if month % 2 == 1:
+    if month % 2 == 0:
         assets = parse_snipe_assets()
         users = parse_snipe_users()
         profiles = parse_okta()
